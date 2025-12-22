@@ -8,7 +8,6 @@
 
 ## 环境准备 (Setup)
 
-请确保环境已安装 `torch` 和 `deepspeed`
 
 ```bash
 # === Step 1: 创建并激活新环境 ===
