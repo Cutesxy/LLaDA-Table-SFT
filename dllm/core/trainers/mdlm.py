@@ -9,7 +9,6 @@ https://arxiv.org/abs/2502.09992
 """
 
 from typing import Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -39,19 +38,19 @@ class MDLMTrainer(transformers.Trainer):
         self.time_epsilon = time_epsilon
         self.loss_weight_type = loss_weight_type
         self.right_shift_logits = right_shift_logits
+        
+        # [新增] 初始化时清空一下旧的 debug 日志文件
+        if self.is_world_process_zero():
+            with open("eval_debug.log", "w") as f:
+                f.write("=== Start Evaluation Log ===\n")
 
     def _preprocess_inputs(self, inputs):
         if self.right_shift_logits:
             labels = inputs.get("labels", None)
-
-            # If labels exist and EVERY sequence already starts with -100,
-            # we treat them as is and skip prepending BOS.
             if labels is not None:
-                # shape: [bsz, seq_len]
                 if torch.all(labels[:, 0] == -100):
                     return inputs
 
-            # Otherwise, prepend BOS (and corresponding labels / attention_mask).
             inputs = prepend_bos(
                 inputs,
                 bos_token_id=self.processing_class.bos_token_id,
@@ -72,10 +71,9 @@ class MDLMTrainer(transformers.Trainer):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        """Compute loss weights given timestep t and other arguments."""
         b, l = inputs["input_ids"].shape
         if self.loss_weight_type == "scheduler":
-            loss_weights = self.scheduler.weight(t).unsqueeze(1).repeat(1, l)  # b, 1
+            loss_weights = self.scheduler.weight(t).unsqueeze(1).repeat(1, l)
         elif self.loss_weight_type == "ones":
             loss_weights = torch.ones_like(inputs["input_ids"])
         else:
@@ -105,20 +103,6 @@ class MDLMTrainer(transformers.Trainer):
         return_outputs: bool = False,
         **kwargs,
     ):
-        """
-        Compute the masked diffusion language modeling loss.
-
-        Applies stochastic masking to input tokens based on a diffusion timestep,
-        then computes the weighted cross-entropy loss for predicting the original tokens.
-
-        Args:
-            model: The language model to train.
-            inputs: Dictionary containing input_ids, labels, and optionally attention_mask.
-            return_outputs: If True, return both loss and model outputs.
-
-        Returns:
-            Loss tensor, or tuple of (loss, outputs) if return_outputs is True.
-        """
         assert self.processing_class.padding_side == "right"
         inputs = self._preprocess_inputs(inputs)
         input_ids, labels, attention_mask = (
@@ -129,58 +113,54 @@ class MDLMTrainer(transformers.Trainer):
         b, l = input_ids.shape
 
         # === 1. Sample diffusion timesteps ===
-        # Each example draws a random timestep t ∈ [ε, 1), where ε avoids degenerate values near 0.
-        # The scheduler defines the masking rate α(t); we convert it to a masking probability p_mask = 1 - α(t).
         t = self.time_epsilon + (1 - self.time_epsilon) * torch.rand(
             b, device=input_ids.device
         )
         p_mask = 1 - self.scheduler(t).unsqueeze(1).expand(b, l)
 
         # === 2. Apply stochastic masking ===
-        # Tokens are masked independently according to p_mask(t).
-        # Positions with label = -100 are excluded (ignored in loss).
         masked_indices = (torch.rand((b, l), device=input_ids.device) < p_mask) & (
             labels != -100
         )
-        # Replace masked tokens with the special [MASK] token.
         noised_input_ids = torch.where(
             masked_indices, self.processing_class.mask_token_id, input_ids
         )
 
-        # === 3. Forward pass through the model ===
-        # The model predicts clean tokens given noised inputs.
+        # === 3. Forward pass ===
         outputs = model(input_ids=noised_input_ids, attention_mask=attention_mask)
         outputs = self._postprocess_outputs(outputs)
         logits = outputs.logits
 
-        # === 4. Handle degenerate cases (no tokens masked) ===
-        # If no positions were masked, return a zero loss to keep gradients valid.
-        # This step is necessary for Deepspeed Zero-{2,3}
+        # === 4. Handle degenerate cases ===
         if not masked_indices.any():
             return (
                 (logits.sum() * 0.0, outputs) if return_outputs else logits.sum() * 0.0
             )
 
-        # === 5. Compute per-token loss weights ===
-        # Depending on the configuration, weights may depend on timestep t
-        # (e.g., scheduler-based) or be uniform (ones).
+        # === 5. Compute weights ===
         loss_weights = self._compute_loss_weights(
             t=t, inputs=inputs, masked_indices=masked_indices
         )
 
-        # === 6. Compute weighted cross-entropy ===
-        # Only masked tokens contribute to the loss.
+        # === 6. Compute loss ===
         assert (input_ids[masked_indices] == labels[masked_indices]).all()
         token_loss = F.cross_entropy(
             logits[masked_indices], input_ids[masked_indices], reduction="none"
         )
         token_loss = token_loss * loss_weights[masked_indices]
 
-        # === 7. Normalize loss per effective token length ===
-        # Normalize each sequence’s contribution by its number of valid tokens,
-        # then average over the batch for stability across variable-length inputs.
+        # === 7. Normalize ===
         effective_lengths = torch.sum(labels != -100, dim=1, keepdim=True).expand(b, l)
         loss = torch.sum(token_loss / effective_lengths[masked_indices]) / b
 
-        # === 8. Return final loss (and optionally model outputs) ===
+        # =========================================================================
+        # [修改] 强行写入文件 eval_debug.log
+        # =========================================================================
+        # if self.is_world_process_zero() and not model.training:
+        #     # 使用追加模式 'a' 打开文件，写完立即关闭，最安全
+        #     with open("eval_debug.log", "a") as f:
+        #         f.write(f"[Eval] Batch Loss: {loss.item():.4f}\n")
+        # # =========================================================================
+
+        # === 8. Return ===
         return (loss, outputs) if return_outputs else loss
