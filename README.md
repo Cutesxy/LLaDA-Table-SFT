@@ -87,7 +87,7 @@ accelerate launch \
     --save_steps 500 \
     --eval_strategy "steps" \
     --eval_steps 5 \
-    --max_length 2048
+    --max_length 4096
 ```
 
 ### 关键参数说明
