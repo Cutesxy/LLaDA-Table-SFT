@@ -11,7 +11,18 @@
 请确保环境已安装 `torch` 和 `deepspeed`
 
 ```bash
-# 安装本项目 (以编辑模式安装)
+# === Step 1: 创建并激活新环境 ===
+# 创建一个名为 dllm 的环境，指定 Python 3.10
+conda create -n dllm python=3.10 -y
+
+# 激活环境
+conda activate dllm
+
+# === Step 2: 安装依赖 ===
+# 这一步会自动安装 PyTorch 和上述列表中的所有包
+pip install -r requirements.txt
+
+# === Step 3: 安装本项目 (dLLM) ===
 pip install -e .
 ```
 
