@@ -1,0 +1,143 @@
+"""
+Local users
+------------
+- 1 GPU (4bit quant & LoRA, useful for testing):
+    accelerate launch \
+        --config_file scripts/accelerate_configs/ddp.yaml --num_processes 1 \
+        examples/llada/sft.py \
+        --load_in_4bit True --lora True
+
+- 8 GPUs (FSDP):
+    accelerate launch \
+        --config_file scripts/accelerate_configs/fsdp.yaml \
+        examples/llada/sft.py
+
+Slurm users
+# Note: run `mkdir logs` before running sbatch; and adjust
+#       `partition` and `quotatype` in `scripts/train.slurm.sh` for your cluster.
+------------
+- 1 Node, 8 GPUs (FSDP):
+    sbatch --gres=gpu:8 scripts/train.slurm.sh \
+        --accelerate_config "fsdp" \
+        --script_path "examples/llada/sft.py"
+
+- 2 Nodes, 16 GPUs (FSDP):
+    sbatch --nodes=2 --gres=gpu:8 scripts/train.slurm.sh \
+        --accelerate_config "fsdp" \
+        --script_path "examples/llada/sft.py"
+"""
+
+import os
+from dataclasses import dataclass, field
+from functools import partial
+
+import accelerate
+import transformers
+# [MODIFIED START] 引入 datasets 库用于加载本地数据
+from datasets import load_dataset
+# [MODIFIED END]
+
+import dllm
+
+logger = dllm.utils.get_default_logger(__name__)
+
+
+@dataclass
+class ModelArguments(dllm.utils.ModelArguments):
+    model_name_or_path: str = "GSAI-ML/LLaDA-8B-Base"
+
+
+@dataclass
+class DataArguments(dllm.utils.DataArguments):
+    # [MODIFIED NOTE] 下面这个参数现在只做占位符或用于后续处理，不再用于下载数据
+    dataset_args: str = "allenai/tulu-3-sft-mixture[train:10000,test:1000]"
+    load_preprocessed_data: bool = False
+    mask_prompt_loss: bool = field(
+        default=True,
+        metadata={"help": "Whether to mask the loss on the prompt tokens"},
+    )
+
+
+@dataclass
+class TrainingArguments(dllm.utils.TrainingArguments):
+    output_dir: str = "models/LLaDA-8B-Base/tulu-3-sft-mixture[train:10000,test:1000]"
+    group_by_length: bool = True
+
+
+def train():
+    # ----- Argument parsing -------------------------------------------------------
+    parser = transformers.HfArgumentParser(
+        (ModelArguments, DataArguments, TrainingArguments)
+    )
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    dllm.utils.print_args_main(model_args, data_args, training_args)
+    dllm.utils.initial_training_setup(model_args, data_args, training_args)
+
+    # ----- Model ------------------------------------------------------------------
+    model = dllm.utils.get_model(model_args=model_args)
+    # ----- Tokenizer --------------------------------------------------------------
+    tokenizer = dllm.utils.get_tokenizer(model_args=model_args)
+    
+    # ----- Dataset ----------------------------------------------------------------
+    with accelerate.PartialState().local_main_process_first():
+        # [MODIFIED START] 修改数据加载逻辑
+        # 原代码：使用 dllm 内置加载器加载远程数据
+        # dataset = dllm.data.load_sft_dataset(
+        #     data_args.dataset_args,
+        #     load_preprocessed_data=data_args.load_preprocessed_data,
+        # )
+        
+        # 新代码：加载本地 JSONL 文件
+        # data_files 指向你刚才下载并转换好的文件路径
+        logger.info("Loading local dataset from data/table_llada_train.jsonl...")
+        dataset = load_dataset("json", data_files="data/table_llada_train.jsonl")
+        # [MODIFIED END]
+
+        if not data_args.load_preprocessed_data:
+            map_fn = partial(
+                dllm.utils.default_mdlm_sft_map_fn,
+                tokenizer=tokenizer,
+                mask_prompt_loss=data_args.mask_prompt_loss,
+            )
+            dataset = dataset.map(
+                map_fn,
+                num_proc=data_args.num_proc,
+                desc="Mapping dataset to SFT format",
+            )
+        # truncate / filter long sequences if needed
+        dataset = dllm.utils.post_process_dataset(dataset, data_args)
+
+    # ----- Training --------------------------------------------------------------
+    accelerate.PartialState().wait_for_everyone()
+    logger.info("Start training...")
+    
+    # [MODIFIED NOTE] 注意：load_dataset("json") 默认只生成 "train" split。
+    # 如果你的数据只有一份，eval_dataset 可以设为 None，或者手动切分。
+    # 这里为了防报错，将 eval_dataset 设为 None (除非你有专门的测试集文件)
+    
+    trainer = dllm.core.trainers.MDLMTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset.get("test", None), # 本地加载通常没有 test split，除非手动划分
+        args=training_args,
+        data_collator=(
+            dllm.utils.NoAttentionMaskWrapper(  # padded <eos_token> should be visible
+                transformers.DataCollatorForSeq2Seq(
+                    tokenizer,
+                    return_tensors="pt",
+                    padding=True,
+                    label_pad_token_id=tokenizer.pad_token_id,  # finetune on padded <eos_token>
+                ),
+            )
+        ),
+    )
+    trainer.train()
+    trainer.save_model(os.path.join(training_args.output_dir, "checkpoint-final"))
+    trainer.processing_class.save_pretrained(
+        os.path.join(training_args.output_dir, "checkpoint-final")
+    )
+
+
+if __name__ == "__main__":
+    train()
