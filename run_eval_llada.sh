@@ -3,7 +3,7 @@
 # ================= 配置区域 =================
 # 1. 设置你想使用的 GPU ID 列表 (空格分隔)
 #    例如想用 0,1,2 卡，就写: GPUS=(0 1 2)
-GPUS=(4 5 6)
+GPUS=(0 1 2)
 
 # 2. 模型和数据路径
 MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from functools import partial
 
 import accelerate
+from accelerate import PartialState
 import transformers
 from transformers import TrainerCallback
 from datasets import load_dataset, DatasetDict
@@ -14,7 +15,7 @@ import dllm
 
 
 # ============================================================
-# 1. 日志系统：控制台 + 文件（training.log）
+# 1. 全局日志（控制台 + training.log）
 # ============================================================
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -31,23 +32,31 @@ logger = dllm.utils.get_default_logger(__name__)
 
 
 # ============================================================
-# 2. Trainer 日志回调：保存 loss / eval_loss / lr
+# 2. 多卡安全的 Trainer 指标保存 Callback
 # ============================================================
 class SaveMetricsCallback(TrainerCallback):
     """
-    将 Trainer 的训练指标保存为：
-    - JSONL（推荐，结构化、便于分析）
-    - CSV（Excel 直接可读）
+    - 仅 rank0 写文件
+    - 其他 rank 直接 return
+    - 适配 accelerate / torchrun
     """
 
     def __init__(self, output_dir: str):
+        self.state = PartialState()
+        self.is_main = self.state.is_local_main_process
         self.output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
 
-        self.jsonl_path = os.path.join(output_dir, "trainer_metrics.jsonl")
-        self.csv_path = os.path.join(output_dir, "trainer_metrics.csv")
+        if self.is_main:
+            os.makedirs(output_dir, exist_ok=True)
+            self.jsonl_path = os.path.join(output_dir, "trainer_metrics.jsonl")
+            self.csv_path = os.path.join(output_dir, "trainer_metrics.csv")
+        else:
+            self.jsonl_path = None
+            self.csv_path = None
 
     def on_log(self, args, state, control, logs=None, **kwargs):
+        if not self.is_main:
+            return
         if logs is None:
             return
 
@@ -97,10 +106,10 @@ class DataArguments(dllm.utils.DataArguments):
 
 @dataclass
 class TrainingArguments(dllm.utils.TrainingArguments):
-    output_dir: str = "models/LLaDA-Table-SFT"
+    output_dir: str = "models/LLaDA-Table-SFT-WithEval"
     group_by_length: bool = True
 
-    # ===== 日志 & 评估 =====
+    # ===== 日志 / 评估 =====
     evaluation_strategy: str = "steps"
     logging_strategy: str = "steps"
 
@@ -112,15 +121,14 @@ class TrainingArguments(dllm.utils.TrainingArguments):
     logging_first_step: bool = True
     do_eval: bool = True
 
-    # HF Trainer 自己的 logging 目录（即使不用 tensorboard 也建议保留）
-    logging_dir: str = "models/LLaDA-Table-SFT/logs"
+    logging_dir: str = "models/LLaDA-Table-SFT-WithEval/logs"
 
-    # 不启用 tensorboard / wandb
+    # 不使用 tensorboard / wandb
     report_to: list[str] = field(default_factory=lambda: ["none"])
 
 
 # ============================================================
-# 4. 训练主函数
+# 4. 训练主逻辑
 # ============================================================
 def train():
     parser = transformers.HfArgumentParser(
@@ -139,7 +147,7 @@ def train():
     tokenizer = dllm.utils.get_tokenizer(model_args=model_args)
 
     # ---------------- Dataset ----------------
-    with accelerate.PartialState().local_main_process_first():
+    with PartialState().local_main_process_first():
         logger.info("Loading datasets...")
         raw_datasets = DatasetDict()
 
@@ -171,7 +179,7 @@ def train():
 
         dataset = dllm.utils.post_process_dataset(dataset, data_args)
 
-    accelerate.PartialState().wait_for_everyone()
+    PartialState().wait_for_everyone()
     logger.info("Start training...")
 
     train_dataset = dataset["train"]
