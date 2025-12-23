@@ -3,10 +3,10 @@
 # ================= 配置区域 =================
 # 1. 设置你想使用的 GPU ID 列表 (空格分隔)
 #    例如想用 0,1,2 卡，就写: GPUS=(0 1 2)
-GPUS=(0 1 2)
+GPUS=(4 5 6)
 
 # 2. 模型和数据路径
-MODEL_PATH="models/LLaDA-Table-SFT/checkpoint-final"
+MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 DATA_PATH="data/table_llada_train_test.jsonl"
 LOG_DIR="logs/llada_table_eval"
 
@@ -17,6 +17,8 @@ STEPS=128
 
 # 自动计算总分片数 (就是 GPU 的数量)
 NUM_SHARDS=${#GPUS[@]}
+
+mkdir -p "$LOG_DIR"
 
 echo "---------------------------------------------------"
 echo "Starting Parallel Evaluation on ${NUM_SHARDS} GPUs: ${GPUS[*]}"
@@ -52,9 +54,3 @@ echo "---------------------------------------------------"
 echo "All workers started! Waiting for them to finish..."
 wait
 echo "All Done!"
-
-# [可选] 自动合并所有日志算总分
-echo "Calculating Final Metrics..."
-# 简单的 grep 统计 (你可以之后再写脚本精确统计)
-cat $LOG_DIR/eval_gpu*_metrics.log | grep "EM:" > $LOG_DIR/all_results.txt
-echo "Results merged to $LOG_DIR/all_results.txt"
