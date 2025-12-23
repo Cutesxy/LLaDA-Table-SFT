@@ -2,10 +2,10 @@
 
 # ================= 配置区域 =================
 # 1. GPU ID 列表
-GPUS=(4 5 6)
+GPUS=(0 1 2)
 
 # 2. 模型和数据路径 (这里换成 Qwen 或 Llama 的路径)
-MODEL_PATH="/path/to/your/Qwen2.5-7B-Instruct" 
+MODEL_PATH="/home/zjusst/hxy/llada/models/Qwen/Qwen2.5-7B-Instruct" 
 DATA_PATH="data/table_llada_train_test.jsonl"
 LOG_DIR="logs/qwen_table_eval"
 
@@ -28,7 +28,7 @@ for ((i=0; i<NUM_SHARDS; i++)); do
     echo "Starting Worker $SHARD_ID on GPU $GPU_ID..."
     
     # 启动进程
-    CUDA_VISIBLE_DEVICES=$GPU_ID python evaluate_baseline_qwen.py \
+    CUDA_VISIBLE_DEVICES=$GPU_ID python evaluate_baseline_qwen_vllm.py \
         --gpu_id $GPU_ID \
         --model_path "$MODEL_PATH" \
         --dataset_path "$DATA_PATH" \

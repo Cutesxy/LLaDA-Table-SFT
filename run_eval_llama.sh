@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(4 5 6) # 你想用的卡
+GPUS=(0 1 2) # 你想用的卡
 
 # 修改为你的 Llama 路径
 MODEL_PATH="/home/zjusst/hxy/llada/models/Meta-Llama-3.1-8B-Instruct" 
@@ -25,7 +25,7 @@ for ((i=0; i<NUM_SHARDS; i++)); do
     echo "Starting Worker $SHARD_ID on GPU $GPU_ID..."
     
     # 显存隔离并启动
-    CUDA_VISIBLE_DEVICES=$GPU_ID python evaluate_baseline_llama.py \
+    CUDA_VISIBLE_DEVICES=$GPU_ID python evaluate_baseline_llama_vllm.py \
         --gpu_id $GPU_ID \
         --model_path "$MODEL_PATH" \
         --dataset_path "$DATA_PATH" \
