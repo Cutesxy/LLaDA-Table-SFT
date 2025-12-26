@@ -39,10 +39,10 @@ class MDLMTrainer(transformers.Trainer):
         self.loss_weight_type = loss_weight_type
         self.right_shift_logits = right_shift_logits
         
-        # [新增] 初始化时清空一下旧的 debug 日志文件
-        if self.is_world_process_zero():
-            with open("eval_debug.log", "w") as f:
-                f.write("=== Start Evaluation Log ===\n")
+        # # [新增] 初始化时清空一下旧的 debug 日志文件
+        # if self.is_world_process_zero():
+        #     with open("eval_debug.log", "w") as f:
+        #         f.write("=== Start Evaluation Log ===\n")
 
     def _preprocess_inputs(self, inputs):
         if self.right_shift_logits:
@@ -57,7 +57,7 @@ class MDLMTrainer(transformers.Trainer):
                 label_pad_token_id=-100,
             )
         return inputs
-
+    
     def _postprocess_outputs(self, outputs):
         if self.right_shift_logits:
             logits = outputs.logits
@@ -79,7 +79,7 @@ class MDLMTrainer(transformers.Trainer):
         else:
             raise NotImplementedError
         return loss_weights
-
+    
     @torch.no_grad()
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
         loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
@@ -113,6 +113,7 @@ class MDLMTrainer(transformers.Trainer):
         b, l = input_ids.shape
 
         # === 1. Sample diffusion timesteps ===
+        # t = 0.001 + 0.999 * random随机数
         t = self.time_epsilon + (1 - self.time_epsilon) * torch.rand(
             b, device=input_ids.device
         )
@@ -161,6 +162,6 @@ class MDLMTrainer(transformers.Trainer):
         #     with open("eval_debug.log", "a") as f:
         #         f.write(f"[Eval] Batch Loss: {loss.item():.4f}\n")
         # # =========================================================================
-
+        
         # === 8. Return ===
         return (loss, outputs) if return_outputs else loss

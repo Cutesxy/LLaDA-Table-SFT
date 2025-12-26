@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel 
+# 新增: 引入 PeftModel 用于加载 LoRA
+from peft import PeftModel
 import re
 import argparse
 import json
@@ -16,18 +18,24 @@ from tqdm import tqdm
 # 0. Argument Parsing
 # ==========================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLaDA-8B Table SFT Evaluation")
+    parser = argparse.ArgumentParser(description="LLaDA-8B Table SFT Evaluation (with LoRA support)")
     
     parser.add_argument('--gpu_id', type=str, default='0', help='Logical GPU ID.')
     parser.add_argument('--dataset_path', type=str, default='data/table_llada_train_test.jsonl', help='Path to test dataset.')
     parser.add_argument('--log_dir', type=str, default='./logs/llada_table_eval', help='Directory to save logs.')
-    parser.add_argument('--model_path', type=str, default="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct", help='Path to trained model.')
+    
+    # Base Model 路径
+    parser.add_argument('--model_path', type=str, default="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct", help='Path to base model.')
+    
+    # [新增] LoRA Adapter 路径
+    # 如果不填这个参数，则只加载 Base Model
+    parser.add_argument('--adapter_path', type=str, default=None, help='Path to LoRA adapter checkpoint (e.g., checkpoint-200). Set to None to use base model.')
     
     parser.add_argument("--shard_id", type=int, default=0, help="Current shard index")
     parser.add_argument("--num_shards", type=int, default=1, help="Total shards")
     parser.add_argument('--random_seed', type=int, default=42)
     
-    # 生成长度设大一点，防止表格截断
+    # 生成参数
     parser.add_argument('--gen_length', type=int, default=512, help='Generation length.')
     parser.add_argument('--steps', type=int, default=128, help='Diffusion steps.')
     
@@ -38,7 +46,17 @@ def parse_args():
 # ==========================================
 def setup_logging(args):
     os.makedirs(args.log_dir, exist_ok=True)
-    log_file = os.path.join(args.log_dir, f"eval_gpu{args.gpu_id}_metrics.log")
+    
+    # 如果使用了 LoRA，在日志文件名里体现一下，方便区分
+    suffix = "_base"
+    if args.adapter_path:
+        # 提取 checkpoint 名字，例如 "checkpoint-200"
+        ckpt_name = os.path.basename(os.path.normpath(args.adapter_path))
+        suffix = f"_lora_{ckpt_name}"
+        
+    log_file = os.path.join(args.log_dir, f"eval_gpu{args.gpu_id}{suffix}_metrics.log")
+    case_file = os.path.join(args.log_dir, f"eval_gpu{args.gpu_id}{suffix}_cases.jsonl")
+
     logger = logging.getLogger(f"Worker-{args.gpu_id}")
     logger.setLevel(logging.INFO)
     logger.handlers = []
@@ -51,7 +69,6 @@ def setup_logging(args):
     sh.setFormatter(formatter)
     logger.addHandler(sh)
     
-    case_file = os.path.join(args.log_dir, f"eval_gpu{args.gpu_id}_cases.jsonl")
     return logger, case_file
 
 # ==========================================
@@ -65,41 +82,28 @@ def normalize_answer(s):
         return ' '.join(text.split())
     def remove_punc(text):
         exclude = set(string.punctuation)
-        # 表格里的 | 符号如果不算标点，可以注释掉下面这行，
-        # 但通常为了比对内容，去掉标点算 F1 更准
         return ''.join(ch for ch in text if ch not in exclude)
     def lower(text):
         return text.lower()
     return white_space_fix(remove_articles(remove_punc(lower(str(s)))))
 
 def compute_f1(a_gold, a_pred):
-    """计算 Token 级别的 F1 Score"""
     gold_toks = normalize_answer(a_gold).split()
     pred_toks = normalize_answer(a_pred).split()
-    
-    # 统计词频
     common = collections.Counter(gold_toks) & collections.Counter(pred_toks)
     num_same = sum(common.values())
-    
-    # 处理空值情况
     if len(gold_toks) == 0 or len(pred_toks) == 0:
         return int(gold_toks == pred_toks)
-    
     if num_same == 0:
         return 0
-    
     precision = 1.0 * num_same / len(pred_toks)
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
 def compute_metrics(gold, pred):
-    # 1. Exact Match (全对) - 非常严格
     em = 1 if normalize_answer(gold) == normalize_answer(pred) else 0
-    
-    # 2. F1 Score - 宽松，看内容重叠度
     f1 = compute_f1(gold, pred)
-        
     return em, f1
 
 # ==========================================
@@ -207,20 +211,34 @@ def main():
 
     # 2. Load Model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Loading Model: {args.model_path}")
+    logger.info(f"Loading Base Model: {args.model_path}")
     
     try:
+        # 2.1 加载 Base Model
         model = AutoModel.from_pretrained(
             args.model_path, 
             trust_remote_code=True, 
             torch_dtype=torch.bfloat16
-        ).to(device).eval()
+        ).to(device) # 先不 eval，等 LoRA 加载完
         
         tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
         if tokenizer.padding_side != 'left':
             tokenizer.padding_side = 'left'
         
         mask_id = 126336
+
+        # 2.2 [新增] 加载 LoRA Adapter (如果 args.adapter_path 存在)
+        if args.adapter_path:
+            logger.info(f"Loading LoRA Adapter from: {args.adapter_path}")
+            # 使用 PeftModel 包装 base model
+            model = PeftModel.from_pretrained(model, args.adapter_path)
+            # 合并权重以加快推理速度 (可选，如果不合并显存占用会稍大一点点，但逻辑一样)
+            # model = model.merge_and_unload() 
+        else:
+            logger.info("No adapter path provided. Using Base Model only.")
+
+        # 2.3 设置为 Eval 模式
+        model.eval()
              
     except Exception as e:
         logger.error(f"Model Load Failed: {e}")
@@ -271,7 +289,7 @@ def main():
                 total_f1 += f1
                 processed_count += 1
 
-                # 打印日志 (Pred 只显示前 50 字符，防刷屏)
+                # 打印日志
                 logger.info(f"[{idx+1}] EM:{em} | F1:{f1:.2f} | Pred:{prediction[:50]}...")
 
                 case_record = {
@@ -292,6 +310,7 @@ def main():
         logger.info("\n" + "="*40)
         logger.info(f"Final Evaluation Report")
         logger.info("="*40)
+        logger.info(f"Mode: {'LoRA (' + args.adapter_path + ')' if args.adapter_path else 'Base Model'}")
         logger.info(f"Total Samples: {processed_count}")
         logger.info(f"Avg Exact Match (EM): {(total_em/processed_count)*100:.2f}%")
         logger.info(f"Avg F1 Score:       {(total_f1/processed_count)*100:.2f}%")
