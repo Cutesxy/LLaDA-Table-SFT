@@ -7,7 +7,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser(description="Calculate Average F1/EM from Logs")
     # 默认指向你刚才展示的目录
-    parser.add_argument('--log_dir', type=str, default='../logs/llada_table_eval_128_checkpoint-400', 
+    parser.add_argument('--log_dir', type=str, default='../../logs/llada_table_eval_256', 
                         help='Path to the log directory containing eval_gpu*_metrics.log')
     return parser.parse_args()
 

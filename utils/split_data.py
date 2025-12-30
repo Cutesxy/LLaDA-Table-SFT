@@ -45,7 +45,7 @@ def split_dataset(input_file, train_ratio=0.9, seed=42):
 
 if __name__ == "__main__":
     # 修改这里为你实际的文件路径
-    input_path = "data/table_llada_train.jsonl" 
+    input_path = "../data/wikitq_test.jsonl" 
     
     if os.path.exists(input_path):
         split_dataset(input_path)

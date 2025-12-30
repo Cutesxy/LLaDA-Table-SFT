@@ -10,8 +10,8 @@ MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 # 3. [新增] LoRA Adapter 路径
 #    - 如果要跑 LoRA，填入具体路径 (例如 checkpoint-200)
 #    - 如果要跑 Base Model (原版)，请将下方变量留空 (即 ADAPTER_PATH="")
-ADAPTER_PATH="./models/llada_table_lora_5e-6_2/checkpoint-600"
-# ADAPTER_PATH=""  <-- 如果想跑原版，解开这行注释，注释掉上面那行
+# ADAPTER_PATH="./models/llada_table_lora_5e-6_2/checkpoint-400"
+ADAPTER_PATH=""   # <-- 如果想跑原版，解开这行注释，注释掉上面那行
 
 # 4. 数据和日志
 DATA_PATH="data/table_llada_train_test.jsonl"
