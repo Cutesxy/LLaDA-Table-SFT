@@ -126,7 +126,7 @@ class MDLMTrainer(transformers.Trainer):
         noised_input_ids = torch.where(
             masked_indices, self.processing_class.mask_token_id, input_ids
         )
-
+    
         # === 3. Forward pass ===
         outputs = model(input_ids=noised_input_ids, attention_mask=attention_mask)
         outputs = self._postprocess_outputs(outputs)

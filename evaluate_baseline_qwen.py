@@ -12,26 +12,28 @@ import string
 from tqdm import tqdm
 
 # ==========================================
-# 0. Argument Parsing (与 LLaDA 保持一致)
+# 0. Argument Parsing
 # ==========================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="Baseline Qwen/Llama Table Evaluation")
+    parser = argparse.ArgumentParser(description="Baseline Qwen/Llama WikiTQ Evaluation")
     
     parser.add_argument('--gpu_id', type=str, default='0', help='Logical GPU ID.')
-    parser.add_argument('--dataset_path', type=str, default='data/table_llada_train_test.jsonl', help='Path to test dataset.')
-    parser.add_argument('--log_dir', type=str, default='./logs/qwen_table_eval', help='Directory to save logs.')
+    # 默认改为你的 WikiTQ 测试集路径
+    parser.add_argument('--dataset_path', type=str, default='data/wikitq_test.jsonl', help='Path to test dataset.')
+    parser.add_argument('--log_dir', type=str, default='./logs/wikitq_eval', help='Directory to save logs.')
     parser.add_argument('--model_path', type=str, required=True, help='Path to Qwen/Llama model.')
     
     parser.add_argument("--shard_id", type=int, default=0, help="Current shard index")
     parser.add_argument("--num_shards", type=int, default=1, help="Total shards")
     parser.add_argument('--random_seed', type=int, default=42)
     
-    parser.add_argument('--gen_length', type=int, default=512, help='Max new tokens.')
+    # [关键修改] WikiTQ 答案很短，默认设为 64，强制模型短输出
+    parser.add_argument('--gen_length', type=int, default=64, help='Max new tokens.')
     
     return parser.parse_args()
 
 # ==========================================
-# 1. Logger Setup (与 LLaDA 保持一致)
+# 1. Logger Setup
 # ==========================================
 def setup_logging(args):
     os.makedirs(args.log_dir, exist_ok=True)
@@ -52,9 +54,14 @@ def setup_logging(args):
     return logger, case_file
 
 # ==========================================
-# 2. Metrics Utilities (与 LLaDA 保持一致)
+# 2. Metrics Utilities (字符串匹配评分机制)
 # ==========================================
+# 这部分就是你要的字符串匹配逻辑，非常适合 WikiTQ
 def normalize_answer(s):
+    """
+    标准化：去除冠词、标点、统一大小写和空格
+    例如：'The 2008.' -> '2008'
+    """
     def remove_articles(text):
         return re.sub(r'\b(a|an|the)\b', ' ', text)
     def white_space_fix(text):
@@ -80,6 +87,7 @@ def compute_f1(a_gold, a_pred):
     return f1
 
 def compute_metrics(gold, pred):
+    # EM: Exact Match (全匹配)
     em = 1 if normalize_answer(gold) == normalize_answer(pred) else 0
     f1 = compute_f1(gold, pred)
     return em, f1
@@ -92,7 +100,7 @@ def main():
     logger, case_file_path = setup_logging(args)
     random.seed(args.random_seed)
     
-    logger.info(f"--- Init Baseline Eval {args.gpu_id} ---")
+    logger.info(f"--- Init WikiTQ Eval {args.gpu_id} ---")
     
     # 1. Load Data
     data = []
@@ -114,11 +122,12 @@ def main():
     
     logger.info(f"Total Test Samples: {total_samples}, Processing Chunk: [{start_idx}:{end_idx}]")
 
-    # 2. Load Model (使用 AutoModelForCausalLM)
+    # 2. Load Model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Loading Baseline Model: {args.model_path}")
+    logger.info(f"Loading Model: {args.model_path}")
     
     try:
+        # 既然你之前的代码能跑，就保持原来的加载方式
         tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             args.model_path, 
@@ -139,43 +148,75 @@ def main():
     processed_count = 0
     
     with open(case_file_path, 'w', encoding='utf-8') as f_case:
-        for idx, item in enumerate(tqdm(my_data, desc=f"Eval-Baseline")):
+        for idx, item in enumerate(tqdm(my_data, desc=f"Eval-WikiTQ")):
             try:
-                if 'messages' in item:
-                    messages_input = [item['messages'][0]] 
-                    ground_truth = item['messages'][1]['content']
-                else: continue
-
-                text_input = tokenizer.apply_chat_template(messages_input, add_generation_prompt=True, tokenize=False)
-                encoded = tokenizer(text_input, return_tensors='pt', truncation=True, max_length=4000).to(device)
+                # [核心修改 1] 解析 WikiTQ 的 messages 结构
+                messages = item.get('messages', [])
                 
-                # 标准自回归生成
+                # 查找 User 输入
+                user_msg_obj = next((m for m in messages if m['role'] == 'user'), None)
+                if not user_msg_obj: continue
+                
+                # 查找 Standard Answer (Assistant)
+                assistant_msg_obj = next((m for m in messages if m['role'] == 'assistant'), None)
+                if not assistant_msg_obj: continue 
+                ground_truth = assistant_msg_obj['content']
+
+                # [核心修改 2] Prompt 增强：强制要求短输出
+                # 我们在原始表格/问题后面，追加一句指令
+                raw_content = user_msg_obj['content']
+                # 修改代码中的 instruction 变量
+                instruction = (
+                    "Read the table and answer the question. "
+                    "Output ONLY the exact answer entity (e.g., a number, date, or name). "
+                    "DO NOT output a full sentence. "
+                    "DO NOT provide explanations or context. "
+                    "Just the answer."
+                )
+                
+                # 构造符合 Chat Template 的输入
+                # 加入 System Prompt 进一步强化“只输出答案”的设定
+                input_messages = [
+                    {"role": "system", "content": "You are a helpful assistant. Answer the user's question concisely."},
+                    {"role": "user", "content": raw_content + "\n\n" + instruction}
+                ]
+
+                # 应用 Chat Template
+                text_input = tokenizer.apply_chat_template(input_messages, add_generation_prompt=True, tokenize=False)
+                
+                # Tokenize (WikiTQ 表格较长，这里给 4096 比较稳妥)
+                encoded = tokenizer(text_input, return_tensors='pt', truncation=True, max_length=4096).to(device)
+                
+                # [核心修改 3] 生成参数控制
                 with torch.no_grad():
                     output_ids = model.generate(
                         **encoded,
-                        max_new_tokens=args.gen_length,
-                        do_sample=False,  # Greedy Search 为了公平对比
-                        temperature=None,
-                        top_p=None,
+                        max_new_tokens=args.gen_length, # 默认为 64，物理限制它写作文
+                        do_sample=False,  # Greedy Search
                         pad_token_id=tokenizer.eos_token_id
                     )
                 
-                # 只解码新生成的 token
-                prediction = tokenizer.decode(output_ids[0][encoded.input_ids.shape[1]:], skip_special_tokens=True).strip()
+                # 解码
+                input_len = encoded.input_ids.shape[1]
+                prediction = tokenizer.decode(output_ids[0][input_len:], skip_special_tokens=True).strip()
 
+                # 简单的后处理：只取第一行（防止模型输出答案后换行继续废话）
+                prediction = prediction.split('\n')[0]
+
+                # [评分机制] 使用代码自带的 EM/F1 进行字符串匹配
                 em, f1 = compute_metrics(ground_truth, prediction)
                 total_em += em
                 total_f1 += f1
                 processed_count += 1
 
-                logger.info(f"[{idx+1}] EM:{em} | F1:{f1:.2f} | Pred:{prediction[:50]}...")
+                logger.info(f"[{idx+1}] EM:{em} | Pred: {prediction[:30]}... | Gold: {ground_truth[:30]}...")
 
                 case_record = {
                     "ground_truth": ground_truth,
                     "prediction": prediction,
                     "metrics": {"em": em, "f1": f1}
                 }
-                f_case.write(json.dumps(case_record) + "\n")
+                f_case.write(json.dumps(case_record, ensure_ascii=False) + "\n")
                 f_case.flush()
 
             except Exception as e:
@@ -186,7 +227,7 @@ def main():
     # 4. Final Report
     if processed_count > 0:
         logger.info("\n" + "="*40)
-        logger.info(f"Final Evaluation Report (Baseline)")
+        logger.info(f"Final Evaluation Report (WikiTQ)")
         logger.info("="*40)
         logger.info(f"Total Samples: {processed_count}")
         logger.info(f"Avg EM: {(total_em/processed_count)*100:.2f}%")

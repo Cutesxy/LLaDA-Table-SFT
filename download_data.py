@@ -2,25 +2,47 @@ import os
 import json
 from modelscope.msdatasets import MsDataset
 
-# 1. 设置保存路径 (在当前目录下创建 data 文件夹)
+# 1. 设置保存路径
 save_dir = "data"
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
-output_file = os.path.join(save_dir, "table_llada_train.jsonl")
 
-print(f"开始下载数据集: spursgozmy/TableLLaDA_train_data ...")
+output_train = os.path.join(save_dir, "wikitq_train.jsonl")
+output_test = os.path.join(save_dir, "wikitq_test.jsonl")
 
-# 2. 加载数据集 (根据提供的信息)
-# 注意：ModelScope 的数据通常会被缓存到 ~/.cache/modelscope 下
-ds = MsDataset.load('spursgozmy/TableLLaDA_train_data', subset_name='default', split='train')
+dataset_id = 'HanaHxy123/wikitq'
 
-print(f"下载完成，正在转换为 JSONL 格式并保存到: {output_file} ...")
+# --- 核心修改：显式指定文件映射 ---
+# 告诉 SDK：train 只有那个 7MB 的文件，test 只有那个 800KB 的文件
+custom_data_files = {
+    'train': 'wikitq_test_train.jsonl', 
+    'test':  'wikitq_test_test.jsonl'
+}
 
-# 3. 转换为 JSONL 格式保存
-# 这样 dLLM 的 dataset loader 比较容易读取
-with open(output_file, 'w', encoding='utf-8') as f:
-    for item in ds:
-        # item 是一个字典，直接写入一行 JSON
-        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+def save_split(dataset_id, split_name, output_file, data_files_config):
+    print(f"--- 正在加载并处理 {split_name} 集 ---")
+    
+    # 使用 data_files 参数精准定位文件
+    ds = MsDataset.load(
+        dataset_id, 
+        split=split_name, 
+        data_files=data_files_config
+    )
+    
+    print(f"加载完成，正在写入: {output_file} ...")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        for item in ds:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            
+    print(f"{split_name} 集完成！数据量: {len(ds)}\n")
 
-print(f"处理完成！共有 {len(ds)} 条数据。")
+if __name__ == "__main__":
+    print(f"开始处理数据集: {dataset_id} (指定文件模式)")
+    
+    # 处理 Train
+    save_split(dataset_id, 'train', output_train, custom_data_files)
+    
+    # 处理 Test
+    save_split(dataset_id, 'test', output_test, custom_data_files)
+    
+    print("所有任务结束。")

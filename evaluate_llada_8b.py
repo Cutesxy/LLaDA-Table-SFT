@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel 
-# 新增: 引入 PeftModel 用于加载 LoRA
 from peft import PeftModel
 import re
 import argparse
@@ -18,26 +17,27 @@ from tqdm import tqdm
 # 0. Argument Parsing
 # ==========================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="LLaDA-8B Table SFT Evaluation (with LoRA support)")
+    parser = argparse.ArgumentParser(description="LLaDA-8B WikiTQ Evaluation (with LoRA support)")
     
     parser.add_argument('--gpu_id', type=str, default='0', help='Logical GPU ID.')
-    parser.add_argument('--dataset_path', type=str, default='data/table_llada_train_test.jsonl', help='Path to test dataset.')
+    # 默认路径改为 WikiTQ
+    parser.add_argument('--dataset_path', type=str, default='data/wikitq_test.jsonl', help='Path to test dataset.')
     parser.add_argument('--log_dir', type=str, default='./logs/llada_table_eval', help='Directory to save logs.')
     
     # Base Model 路径
     parser.add_argument('--model_path', type=str, default="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct", help='Path to base model.')
     
-    # [新增] LoRA Adapter 路径
-    # 如果不填这个参数，则只加载 Base Model
-    parser.add_argument('--adapter_path', type=str, default=None, help='Path to LoRA adapter checkpoint (e.g., checkpoint-200). Set to None to use base model.')
+    # LoRA Adapter 路径
+    parser.add_argument('--adapter_path', type=str, default=None, help='Path to LoRA adapter checkpoint.')
     
     parser.add_argument("--shard_id", type=int, default=0, help="Current shard index")
     parser.add_argument("--num_shards", type=int, default=1, help="Total shards")
     parser.add_argument('--random_seed', type=int, default=42)
     
-    # 生成参数
-    parser.add_argument('--gen_length', type=int, default=512, help='Generation length.')
-    parser.add_argument('--steps', type=int, default=128, help='Diffusion steps.')
+    # [关键修改] WikiTQ 答案很短，设为 64。
+    # 对于 LLaDA (Diffusion)，减小这个值能显著提升速度。
+    parser.add_argument('--gen_length', type=int, default=64, help='Generation length.')
+    parser.add_argument('--steps', type=int, default=64, help='Diffusion steps (can be lower for short gen).')
     
     return parser.parse_args()
 
@@ -47,10 +47,8 @@ def parse_args():
 def setup_logging(args):
     os.makedirs(args.log_dir, exist_ok=True)
     
-    # 如果使用了 LoRA，在日志文件名里体现一下，方便区分
     suffix = "_base"
     if args.adapter_path:
-        # 提取 checkpoint 名字，例如 "checkpoint-200"
         ckpt_name = os.path.basename(os.path.normpath(args.adapter_path))
         suffix = f"_lora_{ckpt_name}"
         
@@ -72,19 +70,15 @@ def setup_logging(args):
     return logger, case_file
 
 # ==========================================
-# 2. Metrics Utilities (EM & F1)
+# 2. Metrics Utilities (Keep Identical)
 # ==========================================
 def normalize_answer(s):
-    """标准化文本：去标点、去冠词、小写化、去多余空格"""
-    def remove_articles(text):
-        return re.sub(r'\b(a|an|the)\b', ' ', text)
-    def white_space_fix(text):
-        return ' '.join(text.split())
+    def remove_articles(text): return re.sub(r'\b(a|an|the)\b', ' ', text)
+    def white_space_fix(text): return ' '.join(text.split())
     def remove_punc(text):
         exclude = set(string.punctuation)
         return ''.join(ch for ch in text if ch not in exclude)
-    def lower(text):
-        return text.lower()
+    def lower(text): return text.lower()
     return white_space_fix(remove_articles(remove_punc(lower(str(s)))))
 
 def compute_f1(a_gold, a_pred):
@@ -92,14 +86,11 @@ def compute_f1(a_gold, a_pred):
     pred_toks = normalize_answer(a_pred).split()
     common = collections.Counter(gold_toks) & collections.Counter(pred_toks)
     num_same = sum(common.values())
-    if len(gold_toks) == 0 or len(pred_toks) == 0:
-        return int(gold_toks == pred_toks)
-    if num_same == 0:
-        return 0
+    if len(gold_toks) == 0 or len(pred_toks) == 0: return int(gold_toks == pred_toks)
+    if num_same == 0: return 0
     precision = 1.0 * num_same / len(pred_toks)
     recall = 1.0 * num_same / len(gold_toks)
-    f1 = (2 * precision * recall) / (precision + recall)
-    return f1
+    return (2 * precision * recall) / (precision + recall)
 
 def compute_metrics(gold, pred):
     em = 1 if normalize_answer(gold) == normalize_answer(pred) else 0
@@ -107,7 +98,7 @@ def compute_metrics(gold, pred):
     return em, f1
 
 # ==========================================
-# 3. LLaDA Generation Logic
+# 3. LLaDA Generation Logic (Standard)
 # ==========================================
 def add_gumbel_noise(logits, temperature):
     if temperature == 0: return logits
@@ -129,6 +120,7 @@ def get_num_transfer_tokens(mask_index, steps):
 def generate(model, prompt, attention_mask=None, steps=128, gen_length=128, block_length=128, temperature=0.,
              cfg_scale=0., remasking='low_confidence', mask_id=126336, logits_eos_inf=False, confidence_eos_eot_inf=False):
     
+    # Construct input canvas
     x = torch.full((prompt.shape[0], prompt.shape[1] + gen_length), mask_id, dtype=torch.long).to(model.device)
     x[:, :prompt.shape[1]] = prompt.clone()
 
@@ -186,7 +178,7 @@ def main():
     logger, case_file_path = setup_logging(args)
     random.seed(args.random_seed)
     
-    logger.info(f"--- Init LLaDA Table Eval {args.gpu_id} ---")
+    logger.info(f"--- Init LLaDA Eval {args.gpu_id} ---")
     
     # 1. Load Data
     data = []
@@ -206,38 +198,28 @@ def main():
     end_idx = total_samples if args.shard_id == args.num_shards - 1 else start_idx + chunk_size
     my_data = data[start_idx:end_idx]
     
-    logger.info(f"Total Test Samples: {total_samples}")
-    logger.info(f"Processing Chunk: [{start_idx}:{end_idx}]")
+    logger.info(f"Chunk: [{start_idx}:{end_idx}] / {total_samples}")
 
     # 2. Load Model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Loading Base Model: {args.model_path}")
+    logger.info(f"Loading Base: {args.model_path}")
     
     try:
-        # 2.1 加载 Base Model
         model = AutoModel.from_pretrained(
             args.model_path, 
             trust_remote_code=True, 
             torch_dtype=torch.bfloat16
-        ).to(device) # 先不 eval，等 LoRA 加载完
+        ).to(device)
         
         tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
-        if tokenizer.padding_side != 'left':
-            tokenizer.padding_side = 'left'
-        
+        if tokenizer.padding_side != 'left': tokenizer.padding_side = 'left'
         mask_id = 126336
 
-        # 2.2 [新增] 加载 LoRA Adapter (如果 args.adapter_path 存在)
         if args.adapter_path:
-            logger.info(f"Loading LoRA Adapter from: {args.adapter_path}")
-            # 使用 PeftModel 包装 base model
+            logger.info(f"Loading LoRA: {args.adapter_path}")
             model = PeftModel.from_pretrained(model, args.adapter_path)
-            # 合并权重以加快推理速度 (可选，如果不合并显存占用会稍大一点点，但逻辑一样)
-            # model = model.merge_and_unload() 
-        else:
-            logger.info("No adapter path provided. Using Base Model only.")
-
-        # 2.3 设置为 Eval 模式
+            # model.merge_and_unload() # Optional
+        
         model.eval()
              
     except Exception as e:
@@ -245,59 +227,75 @@ def main():
         return
 
     # 3. Inference Loop
-    total_em = 0
-    total_f1 = 0
-    processed_count = 0
+    total_em, total_f1, processed_count = 0, 0, 0
     
     with open(case_file_path, 'w', encoding='utf-8') as f_case:
         
-        for idx, item in enumerate(tqdm(my_data, desc=f"Eval")):
+        for idx, item in enumerate(tqdm(my_data, desc=f"Eval-LLaDA")):
             try:
-                # 解析 SFT 格式数据
-                if 'messages' in item:
-                    messages_input = [item['messages'][0]] 
-                    ground_truth = item['messages'][1]['content']
-                else:
-                    logger.warning(f"Skipping format: {item.keys()}")
-                    continue
+                # [核心修改 1] 鲁棒解析
+                messages = item.get('messages', [])
+                user_msg_obj = next((m for m in messages if m['role'] == 'user'), None)
+                if not user_msg_obj: continue
+                
+                assistant_msg_obj = next((m for m in messages if m['role'] == 'assistant'), None)
+                if not assistant_msg_obj: continue 
+                ground_truth = assistant_msg_obj['content']
 
-                # 构造 Prompt
-                text_input = tokenizer.apply_chat_template(messages_input, add_generation_prompt=True, tokenize=False)
-                encoded = tokenizer(text_input, return_tensors='pt', truncation=True, max_length=4000).to(device)
+                # [核心修改 2] Prompt 对齐
+                raw_content = user_msg_obj['content']
+                # 修改代码中的 instruction 变量
+                instruction = (
+                    "Read the table and answer the question. "
+                    "Output ONLY the exact answer entity (e.g., a number, date, or name). "
+                    "DO NOT output a full sentence. "
+                    "DO NOT provide explanations or context. "
+                    "Just the answer."
+                )
+                
+                input_messages = [
+                    {"role": "system", "content": "You are a helpful assistant. Answer the user's question concisely."},
+                    {"role": "user", "content": raw_content + "\n\n" + instruction}
+                ]
+
+                # Tokenize (WikiTQ 表格长，注意 max_length)
+                text_input = tokenizer.apply_chat_template(input_messages, add_generation_prompt=True, tokenize=False)
+                encoded = tokenizer(text_input, return_tensors='pt', truncation=True, max_length=4096).to(device)
+                
                 input_ids = encoded['input_ids']
                 attention_mask = encoded['attention_mask']
 
-                # LLaDA 生成
+                # [核心修改 3] 生成
                 out_tokens = generate(
                     model=model, 
                     prompt=input_ids,
                     attention_mask=attention_mask,
                     steps=args.steps, 
-                    gen_length=args.gen_length,
+                    gen_length=args.gen_length, # 默认为 64
                     block_length=args.gen_length, 
                     temperature=0.0, 
                     mask_id=mask_id
                 )
                 
+                # 解码
                 prediction = tokenizer.batch_decode(out_tokens[:, input_ids.shape[1]:], skip_special_tokens=True)[0]
-                prediction = prediction.strip()
+                
+                # 后处理
+                prediction = prediction.strip().split('\n')[0]
 
-                # 计算 Metrics (EM & F1)
+                # Metrics
                 em, f1 = compute_metrics(ground_truth, prediction)
-
                 total_em += em
                 total_f1 += f1
                 processed_count += 1
 
-                # 打印日志
-                logger.info(f"[{idx+1}] EM:{em} | F1:{f1:.2f} | Pred:{prediction[:50]}...")
+                logger.info(f"[{idx+1}] EM:{em} | Pred: {prediction[:30]}... | Gold: {ground_truth[:30]}...")
 
-                case_record = {
+                f_case.write(json.dumps({
                     "ground_truth": ground_truth,
                     "prediction": prediction,
                     "metrics": {"em": em, "f1": f1}
-                }
-                f_case.write(json.dumps(case_record) + "\n")
+                }, ensure_ascii=False) + "\n")
                 f_case.flush()
 
             except Exception as e:
@@ -305,16 +303,12 @@ def main():
                 torch.cuda.empty_cache()
                 continue
 
-    # 4. Final Report
     if processed_count > 0:
         logger.info("\n" + "="*40)
-        logger.info(f"Final Evaluation Report")
-        logger.info("="*40)
-        logger.info(f"Mode: {'LoRA (' + args.adapter_path + ')' if args.adapter_path else 'Base Model'}")
-        logger.info(f"Total Samples: {processed_count}")
-        logger.info(f"Avg Exact Match (EM): {(total_em/processed_count)*100:.2f}%")
-        logger.info(f"Avg F1 Score:       {(total_f1/processed_count)*100:.2f}%")
-        logger.info(f"Detailed logs: {case_file_path}")
+        logger.info(f"Final Report (LLaDA)")
+        logger.info(f"Mode: {'LoRA' if args.adapter_path else 'Base'}")
+        logger.info(f"Total: {processed_count}")
+        logger.info(f"Avg EM: {(total_em/processed_count)*100:.2f}% | Avg F1: {(total_f1/processed_count)*100:.2f}%")
     
     logger.info("Evaluation Complete.")
 
