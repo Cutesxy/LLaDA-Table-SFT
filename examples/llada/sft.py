@@ -60,7 +60,7 @@ class SaveMetricsCallback(TrainerCallback):
             return
         if logs is None:
             return
-
+        
         record = {
             "step": state.global_step,
             "epoch": state.epoch,

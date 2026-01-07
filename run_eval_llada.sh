@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1 2)
+GPUS=(0)
 MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---
@@ -9,15 +9,15 @@ MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 # 如果跑 LoRA，填入路径: ADAPTER_PATH="./models/llada_table_lora/checkpoint-400"
 ADAPTER_PATH=""
 
-DATA_PATH="data/wikitq_test.jsonl"
-LOG_DIR="logs/wtq_llada_eval"
+DATA_PATH="data/table_llada_train_test.jsonl"
+LOG_DIR="logs/llada_eval"
 
 # [关键参数]
-GEN_LENGTH=64  # 保持 64，强制短输出
+GEN_LENGTH=512  
 STEPS=128      # 步数 128 保证生成质量
 
 # [注意] 这里的文件名要和你保存的 Python 脚本一致
-SCRIPT_NAME="evaluate_llada_8b.py"
+SCRIPT_NAME="evaluate_llada_8b_v1.py"
 # ===========================================
 
 NUM_SHARDS=${#GPUS[@]}

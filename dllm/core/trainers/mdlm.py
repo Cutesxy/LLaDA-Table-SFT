@@ -123,12 +123,14 @@ class MDLMTrainer(transformers.Trainer):
         masked_indices = (torch.rand((b, l), device=input_ids.device) < p_mask) & (
             labels != -100
         )
+        # 加噪过程
         noised_input_ids = torch.where(
             masked_indices, self.processing_class.mask_token_id, input_ids
         )
-    
+
         # === 3. Forward pass ===
         outputs = model(input_ids=noised_input_ids, attention_mask=attention_mask)
+        # 消除自回归模型“错位预测”的影响，强行把预测结果往右挪一格，让 logit 的位置与它真正预测的 token 位置对齐
         outputs = self._postprocess_outputs(outputs)
         logits = outputs.logits
 
@@ -137,7 +139,7 @@ class MDLMTrainer(transformers.Trainer):
             return (
                 (logits.sum() * 0.0, outputs) if return_outputs else logits.sum() * 0.0
             )
-
+    
         # === 5. Compute weights ===
         loss_weights = self._compute_loss_weights(
             t=t, inputs=inputs, masked_indices=masked_indices
@@ -149,7 +151,7 @@ class MDLMTrainer(transformers.Trainer):
             logits[masked_indices], input_ids[masked_indices], reduction="none"
         )
         token_loss = token_loss * loss_weights[masked_indices]
-
+    
         # === 7. Normalize ===
         effective_lengths = torch.sum(labels != -100, dim=1, keepdim=True).expand(b, l)
         loss = torch.sum(token_loss / effective_lengths[masked_indices]) / b
