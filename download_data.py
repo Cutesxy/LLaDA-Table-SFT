@@ -4,7 +4,7 @@ from modelscope.hub.snapshot_download import snapshot_download
 def download_files():
     # 配置参数
     dataset_id = 'HanaHxy123/SFT-TableData'
-    save_folder = './data'
+    save_folder = './eval_data'
     
     # 确保文件夹存在
     if not os.path.exists(save_folder):

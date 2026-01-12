@@ -9,7 +9,8 @@ MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 # 如果跑 LoRA，填入路径，例如: ADAPTER_PATH="./models/llada_table_lora/checkpoint-400"
 ADAPTER_PATH=""
 
-DATA_PATH="data/wikitql.jsonl"
+DATA_PATH="data/wikitql_test.jsonl"
+# DATA_PATH="data/tabfact_test.jsonl"
 LOG_DIR="logs/wtq_llada_eval" # 建议更新日志目录名
 
 # [关键参数]
@@ -19,7 +20,7 @@ STEPS=128      # LLaDA 专用步数
 # [修改点 1] 指向新的主程序
 SCRIPT_NAME="main_eval.py"
 # [修改点 2] 指定任务和模型类型
-TASK_NAME="wtq"
+TASK_NAME="wtq"  # (可选: wtq, tabfact)
 MODEL_TYPE="llada"
 # ===========================================
 
