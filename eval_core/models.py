@@ -39,22 +39,25 @@ def get_num_transfer_tokens(mask_index, steps):
 # =======================================================
 # 2. LLaDA 模型封装类
 # =======================================================
-
 class LLaDAModelWrapper:
     def __init__(self, model_path, adapter_path=None, steps=64, gen_length=64, block_length=128):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"[LLaDA] Loading Base Model from: {model_path}")
         
-        # 1. 加载 Tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        # 1. 加载 Tokenizer (已修复)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path, 
+            trust_remote_code=True,
+            fix_mistral_regex=True
+        )
         if self.tokenizer.padding_side != 'left': 
             self.tokenizer.padding_side = 'left'
         
-        # 2. 加载 Base Model (LLaDA 使用 AutoModel)
+        # 2. 加载 Base Model (已修复)
         self.model = AutoModel.from_pretrained(
             model_path, 
             trust_remote_code=True, 
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16 
         ).to(self.device)
         
         # 3. 加载 LoRA Adapter (如果存在)
