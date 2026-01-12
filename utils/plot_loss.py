@@ -6,8 +6,8 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser(description="Plot Training and Evaluation Loss from JSONL logs")
     # 默认路径为您代码中设置的路径
-    parser.add_argument("--log_file", type=str, default="../models/wiki_llada_table_lora_5e-6_2/trainer_metrics.jsonl", help="Path to the trainer_metrics.jsonl file")
-    parser.add_argument("--output_file", type=str, default="../models/wiki_llada_table_lora_5e-6_2/loss_curve.png", help="Path to save the output image")
+    parser.add_argument("--log_file", type=str, default="../models/llada_table_lora_1e-4_run/trainer_metrics.jsonl", help="Path to the trainer_metrics.jsonl file")
+    parser.add_argument("--output_file", type=str, default="../models/llada_table_lora_1e-4_run/loss_curve.png", help="Path to save the output image")
     return parser.parse_args()
 
 def main():

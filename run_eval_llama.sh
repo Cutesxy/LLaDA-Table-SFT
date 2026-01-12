@@ -1,12 +1,16 @@
 #!/bin/bash
 
 # ================= Config =================
-GPUS=(0 1 2) # GPUs to use
-MODEL_PATH="/home/zjusst/hxy/llada/models/Meta-Llama-3.1-8B-Instruct" # Change this!
-DATA_PATH="data/wikitq_test.jsonl"
-LOG_DIR="logs/wtq_llama_eval"
-GEN_LENGTH=64
-SCRIPT_NAME="evaluate_baseline_llama.py"
+GPUS=(0 1 2) # 使用的 GPU ID
+MODEL_PATH="/home/zjusst/hxy/llada/models/Meta-Llama-3.1-8B-Instruct" 
+DATA_PATH="data/tabfact_test.jsonl"
+LOG_DIR="logs/tabfact_llama_eval" # 建议换个新目录，避免混淆
+
+# [关键参数]
+GEN_LENGTH=512
+SCRIPT_NAME="main_eval.py"  # <--- 改成新的主程序
+TASK_NAME="tabfact"             # <--- 指定任务类型 (必须与 tasks.py 里的注册名一致)
+MODEL_TYPE="hf"             # <--- 指定模型类型 (hf 代表 Llama/Qwen)
 # ==========================================
 
 NUM_SHARDS=${#GPUS[@]}
@@ -17,7 +21,8 @@ pkill -f "$SCRIPT_NAME"
 sleep 2
 
 echo "---------------------------------------------------"
-echo "Starting Llama Evaluation on GPUs: ${GPUS[*]}"
+echo "Starting Integrated Evaluation on GPUs: ${GPUS[*]}"
+echo "Model Type: $MODEL_TYPE | Task: $TASK_NAME"
 echo "---------------------------------------------------"
 
 for ((i=0; i<NUM_SHARDS; i++)); do
@@ -26,9 +31,13 @@ for ((i=0; i<NUM_SHARDS; i++)); do
     
     echo "Starting Worker $SHARD_ID on Physical GPU $GPU_ID..."
     
+    # 构造命令
+    # 注意新增了 --model_type 和 --task
     CUDA_VISIBLE_DEVICES=$GPU_ID nohup python $SCRIPT_NAME \
         --gpu_id $GPU_ID \
+        --model_type $MODEL_TYPE \
         --model_path "$MODEL_PATH" \
+        --task "$TASK_NAME" \
         --dataset_path "$DATA_PATH" \
         --log_dir "$LOG_DIR" \
         --shard_id $SHARD_ID \
@@ -39,4 +48,4 @@ for ((i=0; i<NUM_SHARDS; i++)); do
 done
 
 wait
-echo "Done."
+echo "Done. Results are in $LOG_DIR"

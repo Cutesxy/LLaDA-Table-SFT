@@ -189,7 +189,7 @@ def main():
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")
         return
-
+    
     # Sharding
     random.shuffle(data)
     total_samples = len(data)
@@ -264,7 +264,7 @@ def main():
                 
                 input_ids = encoded['input_ids']
                 attention_mask = encoded['attention_mask']
-
+                
                 # [核心修改 3] 生成
                 out_tokens = generate(
                     model=model, 
