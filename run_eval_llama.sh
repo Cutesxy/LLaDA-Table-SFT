@@ -7,7 +7,7 @@ DATA_PATH="data/tabfact_test.jsonl"
 LOG_DIR="logs/tabfact_llama_eval" # 建议换个新目录，避免混淆
 
 # [关键参数]
-GEN_LENGTH=512
+GEN_LENGTH=256
 SCRIPT_NAME="main_eval.py"  # <--- 改成新的主程序
 TASK_NAME="tabfact"             # <--- 指定任务类型 (必须与 tasks.py 里的注册名一致)
 MODEL_TYPE="hf"             # <--- 指定模型类型 (hf 代表 Llama/Qwen)
