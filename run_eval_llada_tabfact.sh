@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1 2)
+GPUS=(2)
 MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---

@@ -4,7 +4,7 @@
 GPUS=(2) 
 # 确保你的 Qwen 模型路径是正确的
 MODEL_PATH="/home/zjusst/hxy/llada/models/Qwen/Qwen2.5-7B-Instruct" 
-DATA_PATH="data/tabfact_test_4k.jsonl" # 你的数据文件
+DATA_PATH="data/tabfact_test.jsonl" # 你的数据文件
 LOG_DIR="logs/tabfact_qwen_eval" # 建议用个新目录
 
 # [关键参数修改]
