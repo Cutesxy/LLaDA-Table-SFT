@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1)
+GPUS=(0 1 2)
 MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---
@@ -11,7 +11,7 @@ ADAPTER_PATH=""
 
 DATA_PATH="data/wikitql_test.jsonl"
 # DATA_PATH="data/tabfact_test.jsonl"
-LOG_DIR="logs/wtq_cot_llada_eval" # 建议更新日志目录名
+LOG_DIR="logs/wtq_cot_llada_eval_v1" # 建议更新日志目录名
 
 # [关键参数]
 GEN_LENGTH=256

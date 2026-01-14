@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(2) 
+GPUS=(0 1 2) 
 # 确保你的 Qwen 模型路径是正确的
 MODEL_PATH="/home/zjusst/hxy/llada/models/Qwen/Qwen2.5-7B-Instruct" 
-DATA_PATH="data/tabfact_test.jsonl" # 你的数据文件
-LOG_DIR="logs/tabfact_qwen_eval" # 建议用个新目录
+DATA_PATH="data/wikitql_test.jsonl"
+LOG_DIR="logs/wtq_cot_qwen_eval_v1" # 建议更新日志目录名
 
 # [关键参数修改]
 GEN_LENGTH=256
 SCRIPT_NAME="main_eval.py"   # <--- 1. 改成主程序 main_eval.py
-TASK_NAME="tabfact"              # <--- 2. 指定任务 (必须匹配 tasks.py)
+TASK_NAME="wtq-cot"              # <--- 2. 指定任务 (必须匹配 tasks.py)
 MODEL_TYPE="hf"              # <--- 3. 指定模型类型 (Qwen 属于 HF 系列)
 # ===========================================
 
