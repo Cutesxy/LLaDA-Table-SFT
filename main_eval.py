@@ -180,7 +180,7 @@ def main():
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 continue
-
+    
     # -------------------------------------------------------
     # 5. 最终报告
     # -------------------------------------------------------
@@ -189,17 +189,16 @@ def main():
         logger.info(f"Shard {args.shard_id} Completed.")
         logger.info(f"Total Processed: {processed_count}")
         
-        # 动态显示相关的指标
-        if total_em > 0 or args.task == 'wtq':
+        if total_em > 0 or 'wtq' in args.task.lower():
             avg_em = (total_em / processed_count) * 100
             avg_f1 = (total_f1 / processed_count) * 100
             logger.info(f"Average EM: {avg_em:.2f}%")
             logger.info(f"Average F1: {avg_f1:.2f}%")
-            
-        if total_acc > 0 or args.task == 'tabfact':
+        
+        if total_acc > 0 or 'tabfact' in args.task.lower():
             avg_acc = (total_acc / processed_count) * 100
             logger.info(f"Average Accuracy: {avg_acc:.2f}%")
-            
+        
         logger.info("="*40)
     else:
         logger.warning("No samples were processed successfully.")

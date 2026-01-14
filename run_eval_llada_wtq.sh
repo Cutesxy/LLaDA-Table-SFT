@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1 2)
+GPUS=(0 1)
 MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---
@@ -11,16 +11,16 @@ ADAPTER_PATH=""
 
 DATA_PATH="data/wikitql_test.jsonl"
 # DATA_PATH="data/tabfact_test.jsonl"
-LOG_DIR="logs/wtq_llada_eval" # 建议更新日志目录名
+LOG_DIR="logs/wtq_cot_llada_eval" # 建议更新日志目录名
 
 # [关键参数]
-GEN_LENGTH=64
+GEN_LENGTH=256
 STEPS=128      # LLaDA 专用步数
 
 # [修改点 1] 指向新的主程序
 SCRIPT_NAME="main_eval.py"
 # [修改点 2] 指定任务和模型类型
-TASK_NAME="wtq"  # (可选: wtq, tabfact)
+TASK_NAME="wtq-cot"  # (可选: wtq, tabfact, wtq-cot)
 MODEL_TYPE="llada"
 # ===========================================
 
@@ -33,9 +33,9 @@ if [ -n "$ADAPTER_PATH" ]; then
 fi
 mkdir -p "$LOG_DIR"
 
-echo "Cleaning up old processes..."
-pkill -f "$SCRIPT_NAME"
-sleep 2
+# echo "Cleaning up old processes..."
+# pkill -f "$SCRIPT_NAME"
+# sleep 2
 
 echo "---------------------------------------------------"
 echo "Starting LLaDA Evaluation on GPUs: ${GPUS[*]}"

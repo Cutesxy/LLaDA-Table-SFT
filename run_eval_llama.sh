@@ -3,13 +3,13 @@
 # ================= Config =================
 GPUS=(0 1 2) # 使用的 GPU ID
 MODEL_PATH="/home/zjusst/hxy/llada/models/Meta-Llama-3.1-8B-Instruct" 
-DATA_PATH="data/tabfact_test.jsonl"
-LOG_DIR="logs/tabfact_llama_eval" # 建议换个新目录，避免混淆
+DATA_PATH="data/wikitql_test.jsonl"
+LOG_DIR="logs/wtq_cot_llama_eval" # 建议更新日志目录名
 
 # [关键参数]
 GEN_LENGTH=256
 SCRIPT_NAME="main_eval.py"  # <--- 改成新的主程序
-TASK_NAME="tabfact"             # <--- 指定任务类型 (必须与 tasks.py 里的注册名一致)
+TASK_NAME="wtq-cot"             # <--- 指定任务类型 (必须与 tasks.py 里的注册名一致)
 MODEL_TYPE="hf"             # <--- 指定模型类型 (hf 代表 Llama/Qwen)
 # ==========================================
 
