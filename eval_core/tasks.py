@@ -36,7 +36,6 @@ class BaseTask(ABC):
 
 # ========================================================
 # 1. WikiTableQuestions (Strict / Direct Answer Mode)
-#    旧模式：强制模型只输出答案，不许废话。
 # ========================================================
 class WTQTask(BaseTask):
     def __init__(self, data_path):
@@ -51,13 +50,9 @@ class WTQTask(BaseTask):
 
     def get_ground_truth(self, sample):
         if 'answer' in sample: return sample['answer']
-        # 兼容 SFT 数据格式读取
         messages = sample.get('messages', [])
         assistant_msg = next((m for m in messages if m['role'] == 'assistant'), None)
         if assistant_msg:
-            # 如果是 CoT 数据作为 GT，可能需要提取 Answer 后面的部分，
-            # 但如果是评测集通常会有专门的 answer 字段。
-            # 这里假设作为 GT 时，我们尽量取纯净答案。
             content = assistant_msg['content']
             if "Answer:" in content:
                 return content.split("Answer:")[-1].strip()
@@ -91,7 +86,6 @@ class WTQTask(BaseTask):
 
 # ========================================================
 # 2. WikiTableQuestions (CoT Mode)
-#    新增模式：允许模型进行链式思考，但强制输出格式。
 # ========================================================  
 class WTQCoTTask(BaseTask):
     def __init__(self, data_path):
@@ -99,15 +93,11 @@ class WTQCoTTask(BaseTask):
         pass 
     
     def get_ground_truth(self, sample):
-        # 1. 优先取标准数据集里的 answer 字段
         if 'answer' in sample: return sample['answer']
-        
-        # 2. 兼容 SFT 格式 (从 assistant 消息中提取)
         messages = sample.get('messages', [])
         assistant_msg = next((m for m in messages if m['role'] == 'assistant'), None)
         if assistant_msg:
             content = assistant_msg['content']
-            # 尝试提取末尾的 Answer: [...]
             match = re.search(r'(?i)Answer\s*[:：]?\s*(?:\[)?(.*?)(?:\])?$', content, re.MULTILINE)
             if match:
                 return match.group(1).strip()
@@ -115,11 +105,9 @@ class WTQCoTTask(BaseTask):
         return ""
     
     def build_messages(self, sample):
-            # 1. 尝试提取标准字段
             context = sample.get('table', "")
             question = sample.get('question', "")
             
-            # 2. 准备核心输入内容
             core_input = ""
             if context and question:
                 core_input = f"# Table Context\n{context}\n\n# Question\n{question}\n\n"
@@ -131,23 +119,15 @@ class WTQCoTTask(BaseTask):
             
             if not core_input: return []
             
-            # =======================================================
-            # [修复版 Prompt] 两段式指令
-            # 1. Analysis Section: 明确授权可以写句子
-            # 2. Answer Section: 明确约束只针对最后的方括号
-            # =======================================================
             instruction = (
                 f"# Instruction\n"
                 f"You are a precise data analyst. Follow these two steps:\n\n"
-                
                 f"Step 1: Analysis (Optional but recommended)\n"
                 f"You may briefly analyze the table data to derive the answer. "
                 f"Full sentences and reasoning are ALLOWED in this step.\n\n"
-                
                 f"Step 2: Final Answer\n"
                 f"At the very end, output the result in this exact format:\n"
                 f"Answer: [The Result]\n\n"
-                
                 f"Constraints for Step 2 ONLY (Inside the brackets):\n"
                 f"1. Put ONLY the exact answer entity inside [ ].\n"
                 f"2. DO NOT include explanations inside [ ].\n"
@@ -162,47 +142,25 @@ class WTQCoTTask(BaseTask):
             ]
 
     def post_process(self, prediction):
-        """
-        [精准提取逻辑]
-        配合 Strict Constraints，优先抓取方括号内的实体。
-        """
         if not prediction: return ""
         pred_clean = prediction.strip()
-        
-        # ==========================================================
-        # 策略 1: 优先提取 Answer: [...] (最高优先级)
-        # ==========================================================
-        # 使用 finditer 取最后一次出现的答案
         matches = list(re.finditer(r'(?i)Answer\s*[:：]?\s*\[(.*?)\]', pred_clean, re.DOTALL))
         if matches:
             return self._clean_result(matches[-1].group(1))
 
-        # ==========================================================
-        # 策略 2: 提取 Answer: ... (无括号备选)
-        # ==========================================================
-        # 防止模型虽然答对了，但忘了加方括号
         matches = list(re.finditer(r'(?i)Answer\s*[:：]?\s*([^\n]+)', pred_clean))
         if matches:
             content = matches[-1].group(1).strip()
-            # 行内截断清洗：防止 "50 because..."
             if ". " in content: content = content.split(". ")[0]
             if "(" in content: content = content.split("(")[0]
             return self._clean_result(content)
 
-        # ==========================================================
-        # 策略 3: 暴力兜底 (最后一行极短文本)
-        # ==========================================================
-        # 如果模型直接扔了一个数字在最后一行，没有写 "Answer:"
         lines = pred_clean.split('\n')
         for line in reversed(lines):
             line = line.strip()
             if not line: continue
-            
-            # 排除包含 "Analysis", "Step" 等词的行
             if any(k in line.lower() for k in ["analysis", "step", "reasoning", "therefore"]):
                 break 
-
-            # 如果是纯数字或很短的实体 (长度<30)
             if len(line) < 30:
                 return self._clean_result(line)
             break
@@ -210,24 +168,13 @@ class WTQCoTTask(BaseTask):
         return ""
 
     def _clean_result(self, text):
-        """
-        最终清洗：去除格式残留
-        """
         if not text: return ""
         text = str(text).strip()
-        
-        # 去除方括号 (双重保险)
         text = text.replace('[', '').replace(']', '')
-        
-        # 去除 Markdown 和 LaTeX
         text = text.replace('**', '').replace('`', '').replace('$', '').replace('\\boxed', '')
-        
-        # 去除末尾句号 (仅当它不是缩写的一部分时)
-        # 例如保留 "U.S." 但去除 "50."
         if text.endswith('.'):
              if not re.search(r'[A-Z]\.$', text):
                 text = text[:-1]
-                
         return text.strip()
 
     def compute_metrics(self, gold, pred):
@@ -236,7 +183,95 @@ class WTQCoTTask(BaseTask):
         return {"em": em, "f1": f1}
 
 # ========================================================
-# 3. TabFact (Strict Classification)
+# 3. WikiTableQuestions (Completion / Infilling Mode)
+#    [NEW] 专门针对 LLaDA 扩散模型设计的填空模式
+#    去除 Chat Template，直接输出 Table + Question + Answer:
+# ========================================================
+class WTQCompletionTask(BaseTask):
+    def __init__(self, data_path):
+        super().__init__(data_path)
+        # 不需要 system instruction，格式本身就是指令
+    
+    def get_ground_truth(self, sample):
+        # 1. 优先取标准字段
+        if 'answer' in sample: return sample['answer']
+        
+        # 2. 从 SFT 格式的 assistant 消息中提取
+        messages = sample.get('messages', [])
+        for msg in messages:
+            if msg['role'] == 'assistant':
+                return msg['content'].strip()
+        return ""
+    
+    def build_messages(self, sample):
+        """
+        试卷风格 (Exam Style) 的 Prompt 构造
+        """
+        # 1. 提取原始 User 输入
+        messages = sample.get('messages', [])
+        raw_content = ""
+        for msg in messages:
+            if msg['role'] == 'user':
+                raw_content = msg['content']
+                break
+        
+        if not raw_content:
+            return ""
+
+        # 2. 数据清洗
+        tab_start = raw_content.find("[TAB]")
+        if tab_start == -1:
+            return raw_content + "\nAnswer:"
+            
+        clean_content = raw_content[tab_start:] 
+        
+        # 3. 分离表格和问题
+        parts = clean_content.rsplit("\n\n", 1)
+        
+        if len(parts) == 2:
+            table_part = parts[0].strip()
+            question_part = parts[1].strip()
+            
+            # ==========================================
+            # [核心修改] 构造试卷风格的 Prompt
+            # ==========================================
+            prompt = (
+                "== Table Analysis Task ==\n\n"     # 试卷标题
+                "[Reference Data]\n"                # 数据区标题
+                f"{table_part}\n\n"                 # 表格内容
+                "-------------------\n\n"           # 分隔线 (视觉辅助)
+                "[Question]\n"                      # 问题区标题
+                f"{question_part}\n\n"              # 问题内容
+                "[Answer]\n"                        # 答题区 (留给模型填空)
+            )
+            # 注意：Prompt 到 "[Answer]\n" 结束，
+            # 后面紧接着的就是 Diffusion 模型要生成的 [MASK] (即那个"空")
+            
+        else:
+            # 兜底逻辑
+            prompt = (
+                "[Data]\n"
+                f"{clean_content}\n\n"
+                "[Answer]\n"
+            )
+
+        return prompt
+    
+    def post_process(self, prediction):
+        """
+        简单清洗：取第一行，因为扩散生成可能会有多余的 padding 或乱码
+        (Models.py 中已经做了 EOS 截断，这里做二次保险)
+        """
+        if not prediction: return ""
+        return prediction.strip().split('\n')[0]
+
+    def compute_metrics(self, gold, pred):
+        em = compute_exact_match(gold, pred)
+        return {"em": em}
+
+
+# ========================================================
+# 4. TabFact (Strict Classification)
 # ========================================================
 class TabFactTask(BaseTask):
     def __init__(self, data_path):
@@ -246,15 +281,12 @@ class TabFactTask(BaseTask):
         )
 
     def get_ground_truth(self, sample):
-        # 优先从 label 字段获取（如果有）
         if 'label' in sample:
             return "entailed" if sample['label'] == 1 else "refuted"
-            
         messages = sample.get('messages', [])
         for msg in messages:
             if msg['role'] == 'assistant':
                 content = msg['content'].strip().lower()
-                # 尝试提取 GT 中的标签
                 if 'entailed' in content: return 'entailed'
                 if 'refuted' in content: return 'refuted'
         return ""
@@ -262,7 +294,6 @@ class TabFactTask(BaseTask):
     def build_messages(self, sample):
         messages = sample.get('messages', [])
         user_content = ""
-        # 尝试从 messages 获取，或者直接从 key 构造
         if not messages and 'statement' in sample and 'table' in sample:
              user_content = f"Table:\n{sample['table']}\nStatement: {sample['statement']}"
         else:
@@ -298,11 +329,11 @@ class TabFactTask(BaseTask):
 def get_task(task_name, data_path):
     name = task_name.lower().strip()
     if name == "wtq": 
-        # 默认 WTQ 还是 Strict 模式，保持兼容
         return WTQTask(data_path)
     elif name == "wtq-cot":
-        # 新增的 CoT 模式
         return WTQCoTTask(data_path)
+    elif name == "wtq-completion": # <--- 新增的注册入口
+        return WTQCompletionTask(data_path)
     elif name == "tabfact": 
         return TabFactTask(data_path)
     raise ValueError(f"Unknown task: {task_name}")
