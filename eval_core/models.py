@@ -72,7 +72,7 @@ class LLaDAModelWrapper:
         self.gen_length = gen_length
         self.block_length = block_length
         self.mask_id = 126336 # LLaDA 固定的 Mask Token ID
-
+    
     def _diffusion_generate(self, prompt_ids, attention_mask, temperature=0.0, remasking='low_confidence'):
         """
         LLaDA 核心生成逻辑，包含 Block 划分和重掩码机制
@@ -144,55 +144,40 @@ class LLaDAModelWrapper:
                 x[transfer_index] = x0[transfer_index]
                 
         return x
-
+    
     def generate(self, messages, max_new_tokens=None):
         """
         修改后的生成接口：
-        1. 支持 Raw String 输入（跳过 Chat Template）
-        2. 支持 EOS 截断
+        [关键改变] 现在直接返回 Token Tensor，而不是解码后的字符串。
+        这样 main_eval.py 才能拿到原始 ID 进行 EOS 截断。
         """
         # 更新生成长度
         if max_new_tokens is not None:
             self.gen_length = max_new_tokens
 
-        # ================= 改动点 1: 输入处理 =================
+        # 1. 输入处理
         if isinstance(messages, str):
-            # [模式 A] 填空模式 (Completion Mode)
-            # 直接使用字符串，不加 <|im_start|> 等标签
             text_input = messages
         else:
-            # [模式 B] 对话模式 (Chat Mode)
-            # 使用官方模板添加角色标签
             text_input = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         
-        # Tokenize
         encoded = self.tokenizer(text_input, return_tensors='pt', truncation=True, max_length=4096).to(self.device)
         input_ids = encoded['input_ids']
         attention_mask = encoded['attention_mask']
         
-        # 执行扩散生成
+        # 2. 执行扩散生成
         with torch.no_grad():
             out_tokens = self._diffusion_generate(input_ids, attention_mask)
         
-        # ================= 改动点 2: 解码与截断 =================
-        # 只取新生成的部分
+        # 3. 提取生成部分 (Output IDs)
         generated_part = out_tokens[:, input_ids.shape[1]:]
         
-        # 注意：这里改为 skip_special_tokens=False，因为我们需要看到 EOS token
-        raw_pred = self.tokenizer.decode(generated_part[0], skip_special_tokens=False)
-        
-        clean_pred = raw_pred
-        
-        # 尝试进行 EOS 截断
-        # 1. 优先使用 tokenizer 定义的 eos
-        if self.tokenizer.eos_token and self.tokenizer.eos_token in clean_pred:
-            clean_pred = clean_pred.split(self.tokenizer.eos_token)[0]
-        
-        # 2. 兜底清洗：如果没生成 EOS，但生成了 PAD (通常不应该发生，但以防万一)
-        if self.tokenizer.pad_token:
-            clean_pred = clean_pred.replace(self.tokenizer.pad_token, "")
-            
-        return clean_pred.strip()
+        # =======================================================
+        # [核心修改] 
+        # 不要在这里 decode！直接返回 Tensor！
+        # 把清洗和截断的工作交给 main_eval.py 去做。
+        # =======================================================
+        return generated_part
 
 
 # =======================================================

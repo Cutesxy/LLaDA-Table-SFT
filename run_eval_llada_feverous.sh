@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1 2 3)  # 使用的 GPU 编号
-MODEL_PATH="/mnt/hxy/LLaDA-Table-SFT/models/LLaDA-Table-Block/checkpoint-final"
+GPUS=(0 1)  # 使用的 GPU 编号
+MODEL_PATH="/mnt/hxy/LLaDA-Table-SFT/models/Table-LLaDA-Generalist/checkpoint-1000"
 # MODEL_PATH="/mnt/models/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---
@@ -10,14 +10,13 @@ MODEL_PATH="/mnt/hxy/LLaDA-Table-SFT/models/LLaDA-Table-Block/checkpoint-final"
 ADAPTER_PATH="" 
 # ADAPTER_PATH="./models/llada_table_lora_1e-4_run/checkpoint-final"
 
-DATA_PATH="data/tabfact_test.jsonl"
-LOG_DIR="logs/tabfact_blocksft_step128_getlength256_blocksize32_checkpoint-final" 
+DATA_PATH="data/feverous_test.jsonl"
+LOG_DIR="logs/feverous_generalist_step1_ckpt_1000" 
 
 # [关键修改]
-TASK_NAME="tabfact-robust" 
-GEN_LENGTH=256                    # <--- 长度设为 3 (2单词 + 1 EOS)
-STEPS=128                    # <--- 64步足够生成短词，且更快
-BLOCK_SIZE=32
+TASK_NAME="feverous"  # <--- 改为新的填空任务
+GEN_LENGTH=3                    # <--- 长度设为 3 (2单词 + 1 EOS)
+STEPS=1                    # <--- 64步足够生成短词，且更快
 
 # 主程序
 SCRIPT_NAME="main_eval.py"

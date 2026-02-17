@@ -1,57 +1,64 @@
 #!/bin/bash
 
 # ================= 配置区域 =================
-GPUS=(0 1 2)
-MODEL_PATH="/home/zjusst/hxy/llada/models/GSAI-ML/LLaDA-8B-Instruct"
+# [设置] 使用的 GPU 卡号
+GPUS=(0 1 2 3)
+
+# [关键修改 1] 模型路径指向你正在训练的混合模型 (Generalist)
+# 注意：如果你还在训练中，这里可能需要指向具体的 checkpoint (如 checkpoint-400)
+# 训练完成后，通常是 checkpoint-final 或直接是输出目录
+# [修正] 请确保这是绝对路径，或者相对于当前执行目录的正确相对路径
+MODEL_PATH="/mnt/yss/spg-checkpoint/fact_wtq_sft-rl-checkpoint-2300"
+# MODEL_PATH="/mnt/models/LLaDA-8B-Instruct"
 
 # --- LoRA 设置 ---
-# 如果跑原版 Base，保持为空字符串: ADAPTER_PATH=""
-# 如果跑 LoRA，填入路径，例如: ADAPTER_PATH="./models/llada_table_lora/checkpoint-400"
 ADAPTER_PATH=""
 
+# 数据路径
 DATA_PATH="data/wikitql_test.jsonl"
-# DATA_PATH="data/tabfact_test.jsonl"
-LOG_DIR="logs/wtq_cot_llada_eval_v1" # 建议更新日志目录名
 
-# [关键参数]
+# [关键修改 2] 任务名 (确保 main_eval.py 里有对应的处理逻辑)
+TASK_NAME="wtq-robust"  
+
+# [关键修改 3] 长度设为 32
+# WTQ 答案是不定长的，32 足够覆盖 99% 的情况
 GEN_LENGTH=256
-STEPS=128      # LLaDA 专用步数
 
-# [修改点 1] 指向新的主程序
+# [关键修改 4] 步数设为 32
+# 生成任务建议用 32 步以保证拼写质量；如果追求极致速度，之后可以测 Step 1
+STEPS=128
+
+BLOCK_SIZE=64
+
+# 日志目录：自动包含步数和长度信息，方便对比
+LOG_DIR="logs/eval_wtq_sft_rl_step${STEPS}_len${GEN_LENGTH}_blocksize64_checkpoint-2300" 
+
 SCRIPT_NAME="main_eval.py"
-# [修改点 2] 指定任务和模型类型
-TASK_NAME="wtq-cot"  # (可选: wtq, tabfact, wtq-cot)
 MODEL_TYPE="llada"
 # ===========================================
 
 NUM_SHARDS=${#GPUS[@]}
 
-# 如果跑 LoRA，自动修改日志目录名，方便区分
 if [ -n "$ADAPTER_PATH" ]; then
     CKPT_NAME=$(basename "$ADAPTER_PATH")
     LOG_DIR="${LOG_DIR}_${CKPT_NAME}"
 fi
 mkdir -p "$LOG_DIR"
 
-# echo "Cleaning up old processes..."
-# pkill -f "$SCRIPT_NAME"
-# sleep 2
-
 echo "---------------------------------------------------"
-echo "Starting LLaDA Evaluation on GPUs: ${GPUS[*]}"
-echo "Model Type: $MODEL_TYPE | Task: $TASK_NAME"
-echo "Mode: $(if [ -n "$ADAPTER_PATH" ]; then echo "LoRA ($ADAPTER_PATH)"; else echo "Base Model"; fi)"
+echo "🚀 Starting WTQ Evaluation (Mixed Generalist)"
+echo "GPUs: ${GPUS[*]}"
+echo "Model: $MODEL_PATH"
+echo "Strategy: Fixed Canvas (Len=$GEN_LENGTH) + EOS Truncation"
+echo "Diffusion Steps: $STEPS"
 echo "---------------------------------------------------"
 
 for ((i=0; i<NUM_SHARDS; i++)); do
     GPU_ID=${GPUS[$i]}
     SHARD_ID=$i
     
-    echo "Starting Worker $SHARD_ID on Physical GPU $GPU_ID..."
+    echo "Starting Worker $SHARD_ID on GPU $GPU_ID..."
     
-    # [修改点 3] 构建命令
-    # 注意：这里新增了 --model_type, --task
-    # 保留了 --steps (因为是 llada)
     CMD="python $SCRIPT_NAME \
         --gpu_id $GPU_ID \
         --model_type $MODEL_TYPE \
@@ -64,15 +71,13 @@ for ((i=0; i<NUM_SHARDS; i++)); do
         --gen_length $GEN_LENGTH \
         --steps $STEPS"
 
-    # 如果配置了 LoRA 路径，追加参数
     if [ -n "$ADAPTER_PATH" ]; then
         CMD="$CMD --adapter_path $ADAPTER_PATH"
     fi
     
-    # 运行
     CUDA_VISIBLE_DEVICES=$GPU_ID nohup $CMD > "$LOG_DIR/nohup_gpu${GPU_ID}.log" 2>&1 &
         
 done
 
 wait
-echo "All workers finished! Check results in $LOG_DIR"
+echo "All done! Logs in $LOG_DIR"
