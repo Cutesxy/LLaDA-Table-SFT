@@ -1,0 +1,213 @@
+{
+  "exists": {
+    "base_19k": "True",
+    "mix_40k": "True",
+    "mix_105k": "True",
+    "aug_66k_messages": "True",
+    "aug_66k_full": "True",
+    "wtq_test": "True",
+    "tabfact_test": "True",
+    "e2e_t2t_test": "True",
+    "rotowire_t2t_test": "True"
+  },
+  "base_19k": {
+    "rows": 19340,
+    "parse_errors": 0,
+    "missing_messages": 0,
+    "bad_role_order": 0,
+    "empty_user": 0,
+    "empty_assistant": 0,
+    "exact_dup_rows": 0,
+    "exact_dup_ratio": 0.0,
+    "user_dup_rows": 6,
+    "user_dup_ratio": 0.031,
+    "roles_top": [
+      [
+        [
+          "user",
+          "assistant"
+        ],
+        19340
+      ]
+    ],
+    "char_len_p50": 1520,
+    "char_len_p90": 3540,
+    "char_len_p95": 5048,
+    "char_len_p99": 13896,
+    "char_len_max": 52270
+  },
+  "mix_40k": {
+    "rows": 39340,
+    "parse_errors": 0,
+    "missing_messages": 0,
+    "bad_role_order": 0,
+    "empty_user": 0,
+    "empty_assistant": 0,
+    "exact_dup_rows": 4,
+    "exact_dup_ratio": 0.0102,
+    "user_dup_rows": 10,
+    "user_dup_ratio": 0.0254,
+    "roles_top": [
+      [
+        [
+          "user",
+          "assistant"
+        ],
+        39340
+      ]
+    ],
+    "char_len_p50": 1639,
+    "char_len_p90": 4730,
+    "char_len_p95": 6511,
+    "char_len_p99": 13896,
+    "char_len_max": 135229
+  },
+  "mix_105k": {
+    "rows": 105357,
+    "parse_errors": 0,
+    "missing_messages": 0,
+    "bad_role_order": 0,
+    "empty_user": 0,
+    "empty_assistant": 0,
+    "exact_dup_rows": 1086,
+    "exact_dup_ratio": 1.0308,
+    "user_dup_rows": 1094,
+    "user_dup_ratio": 1.0384,
+    "roles_top": [
+      [
+        [
+          "user",
+          "assistant"
+        ],
+        105357
+      ]
+    ],
+    "char_len_p50": 1525,
+    "char_len_p90": 5325,
+    "char_len_p95": 6099,
+    "char_len_p99": 9173,
+    "char_len_max": 135229
+  },
+  "aug_66k_messages": {
+    "rows": 66017,
+    "parse_errors": 0,
+    "missing_messages": 0,
+    "bad_role_order": 0,
+    "empty_user": 0,
+    "empty_assistant": 0,
+    "exact_dup_rows": 1082,
+    "exact_dup_ratio": 1.639,
+    "user_dup_rows": 1084,
+    "user_dup_ratio": 1.642,
+    "roles_top": [
+      [
+        [
+          "user",
+          "assistant"
+        ],
+        66017
+      ]
+    ],
+    "char_len_p50": 1431,
+    "char_len_p90": 5546,
+    "char_len_p95": 5945,
+    "char_len_p99": 7415,
+    "char_len_max": 11345
+  },
+  "aug_66k_full_summary": {
+    "rows": 66017,
+    "parse_errors": 0,
+    "task_counts": {
+      "ColumnFinding": 10000,
+      "DataImputation": 4751,
+      "EntityMatching": 12010,
+      "Row2RowTransformation": 5559,
+      "RowAugmentation": 10505,
+      "RowColumnFiltering": 10603,
+      "RowColumnSorting": 5864,
+      "RowColumnSwapping": 6725
+    },
+    "prompt_setting": {
+      "zero-shot": 34739,
+      "few-shot": 31278
+    },
+    "augmented_true": 59882,
+    "augmented_ratio": 0.9071,
+    "top_keys": [
+      [
+        "task",
+        66017
+      ],
+      [
+        "dataset",
+        66017
+      ],
+      [
+        "prompt",
+        66017
+      ],
+      [
+        "completion",
+        66017
+      ],
+      [
+        "messages",
+        66017
+      ],
+      [
+        "prompt_setting",
+        66017
+      ],
+      [
+        "metadata",
+        66017
+      ],
+      [
+        "_augmented",
+        66017
+      ]
+    ]
+  },
+  "wtq_test_summary": {
+    "rows": 4344,
+    "parse_errors": 0,
+    "has_messages_rows": 4344
+  },
+  "tabfact_test_summary": {
+    "rows": 4000,
+    "parse_errors": 0,
+    "has_messages_rows": 4000
+  },
+  "e2e_t2t_test_summary": {
+    "rows": 4693,
+    "parse_errors": 0,
+    "has_messages_rows": 4693
+  },
+  "rotowire_t2t_test_summary": {
+    "rows": 728,
+    "parse_errors": 0,
+    "has_messages_rows": 728
+  },
+  "possible_user_overlap_105k_vs_eval": {
+    "wtq_test": {
+      "eval_user_unique": 4344,
+      "overlap": 0,
+      "overlap_ratio_unique": 0.0
+    },
+    "tabfact_test": {
+      "eval_user_unique": 3996,
+      "overlap": 0,
+      "overlap_ratio_unique": 0.0
+    },
+    "e2e_t2t_test": {
+      "eval_user_unique": 4532,
+      "overlap": 0,
+      "overlap_ratio_unique": 0.0
+    },
+    "rotowire_t2t_test": {
+      "eval_user_unique": 728,
+      "overlap": 0,
+      "overlap_ratio_unique": 0.0
+    }
+  }
+}

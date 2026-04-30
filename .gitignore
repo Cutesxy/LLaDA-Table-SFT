@@ -1,0 +1,54 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs / temp
+logs/
+*.log
+*.tmp
+
+# Model weights / checkpoints / archives
+models/
+**/checkpoint-*/
+**/checkpoint-final/
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.tar
+*.tar.gz
+*.zip
+
+# Large local artifacts
+LLaDA-Table-Block-103k-notf-v1.tar
+backup_env/
+paper_dataset/
+
+# Keep only selected data files under data/
+data/*
+!data/README.md
+!data/llada_sft_train_all_103587_messages_mix40k_tablegptaug_dianswerable.jsonl
+!data/wikitql_test.jsonl
+!data/tabfact_test.jsonl
+!data/e2e_test_text2table_messages_with_meta.jsonl
+!data/rotowire_test_text2table_messages_with_meta.jsonl
+
+# table-gpt-augmented heavy artifacts
+table-gpt-augmented/train_full_*.jsonl
+table-gpt-augmented/train_messages_*.jsonl
+table-gpt-augmented/train_messages_only_*.jsonl
+table-gpt-augmented/DataImputation.jsonl
+table-gpt-augmented/merged/
+table-gpt-augmented/by_task_messages/
+
+# Exclude external/raw repos and docs
+table-gpt-augmented/
+text-to-table.pdf
+loss_curve_zoomed.png
